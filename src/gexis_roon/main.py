@@ -49,7 +49,7 @@ CAPABILITIES = {
     # Roon plays at full scale into the loopback; the player's own volume
     # sets the level, as for Lyrion.
     "volume_managed": False,
-    "volume_mechanism": "none",
+    "volume_mechanism": "software_api",
     "dummy_mixer_card": None,
     "volume_over_bluealsa": False,
     "volume_handed": False,

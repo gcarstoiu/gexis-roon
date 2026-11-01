@@ -1,0 +1,11 @@
+{
+  "id": "roon",
+  "name": "Roon",
+  "summary": "Plays from Roon: the player is a Roon device, through its own output, untouched with the equaliser off.",
+  "kind": "renderer",
+  "unit": "gexis-roon.service",
+  "label": "Roon Active",
+  "accent": "#b0bcc4",
+  "status": "Ready",
+  "notice": "Roon Bridge, which makes the player a Roon device, is Roon Labs' software: it is downloaded from Roon Labs when Roon is added, and keeps itself up to date, under Roon's terms (roon.app/en/termsandconditions). It plays from a Roon Core on the same network."
+}

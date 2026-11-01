@@ -1,0 +1,22 @@
+[Unit]
+Description=Roon as a Gexis plugin
+Documentation=https://github.com/gcarstoiu/gexis-roon
+# Roon Bridge comes and goes with the plugin (ADR-0172 in gexis-player).
+Wants=gexis-roonbridge.service
+After=gexis-core.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m gexis_roon.main
+Environment=PYTHONPATH=/opt/gexis-roon/src
+User=pi
+SupplementaryGroups=audio
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -105,3 +105,13 @@ async def test_taken_away_it_waits_for_roon_to_play_anew(plugin):
 async def test_transport_is_refused_without_the_extension(plugin):
     with pytest.raises(ValueError):
         await plugin.command("transport", {"command": "pause"})
+
+
+def test_hello_uses_the_contracts_own_words():
+    """The core refuses a hello with a value it does not know
+    (docs/PLUGIN-CONTRACT.md in gexis-player): 0.1.0's first try said
+    `volume_mechanism: none` and was refused."""
+    hello = main.hello()
+    assert hello["kind"] == "renderer" and hello["release_action"] in ("pause", "disconnect")
+    assert hello["capabilities"]["volume_mechanism"] in ("dummy_mixer", "software_api")
+    assert hello["capabilities"]["audio_connection"] == "output"

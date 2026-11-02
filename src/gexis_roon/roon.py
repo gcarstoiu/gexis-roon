@@ -63,10 +63,13 @@ class _Quiet(logging.Filter):
 
 
 def quieten() -> None:
+    """After the library is imported: its import sets its logger up."""
     library = logging.getLogger("roonapi")
     library.handlers.clear()  # its own handler would log every line twice
     library.setLevel(logging.WARNING)
-    library.addFilter(_Quiet())
+    if not any(isinstance(f, _Quiet) for f in library.filters):
+        library.addFilter(_Quiet())
+    logging.getLogger("websocket").setLevel(logging.WARNING)
 
 
 def load(path: Path = STATE) -> dict:
@@ -146,7 +149,6 @@ class Link:
         self._loop.run_in_executor(None, self._keep, {"outputs": sorted(outputs or ())})
 
     def start(self) -> None:
-        quieten()
         self._thread.start()
 
     def stop(self) -> None:
@@ -198,6 +200,7 @@ class Link:
         except ImportError:
             logger.warning("python3-roonapi is not installed: Roon plays, with nothing shown")
             return
+        quieten()
         misses = 0
         while not self._stop.is_set():
             wanted = self.saved.get("core_id") if misses < ANY_CORE_AFTER else None

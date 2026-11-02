@@ -77,3 +77,21 @@ def test_a_changed_zone_replaces_the_one_it_had(Api):
         assert api.zones["z1"]["state"] == "stopped", "a seek is merged, as before"
     finally:
         api.stop()
+
+
+def test_the_library_is_quietened_after_its_import_sets_its_logger_up(monkeypatch, tmp_path):
+    """On sofapi, 0.2.0 quietened it before the import, which then put its
+    own handler and INFO level back: every line twice, and its errors whole."""
+    library = logging.getLogger("roonapi")
+
+    def imported():
+        library.handlers.append(logging.StreamHandler())
+        library.setLevel(logging.INFO)
+        return object
+
+    link = roon.Link(loop=None, on_zones=None, path=tmp_path / "roon.json", host="sofapi")
+    monkeypatch.setattr(roon, "api_class", imported)
+    monkeypatch.setattr(roon, "discover", lambda core_id: link._stop.set())
+    link._run()
+    assert library.handlers == [] and library.level == logging.WARNING
+    assert any(isinstance(f, roon._Quiet) for f in library.filters)

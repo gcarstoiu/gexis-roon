@@ -132,6 +132,7 @@ class Plugin:
         self._playing = False
         self._stream: loopback.Stream | None = None
         self._transport: str | None = None
+        self._state: str | None = None
 
     # --- to the core --------------------------------------------------------
 
@@ -197,9 +198,11 @@ class Plugin:
 
         async def pause() -> None:
             try:
-                await self.roon.control(zone["zone_id"], "pause")
+                done = await self.roon.control(zone["zone_id"], "pause")
             except Exception as exc:  # noqa: BLE001 - the output is given back regardless
                 logger.info("could not pause Roon: %s", exc)
+                return
+            logger.info("Roon %s", "paused" if done else "did not answer the pause")
 
         asyncio.ensure_future(pause())
 
@@ -221,6 +224,11 @@ class Plugin:
 
     async def tick(self, state: str, stream: loopback.Stream | None) -> None:
         """One reading of the loopback's device 0."""
+        if state != self._state:
+            # What Roon Bridge does with the loopback, said as it changes: a
+            # takeover is read from these.
+            logger.info("loopback %s", state)
+            self._state = state
         self.finder.loopback(state == "running")
         if self.finder.check():
             logger.info("this player's Roon zone: %s", "found" if self.finder.zone_id() else "not known")

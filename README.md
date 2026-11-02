@@ -19,16 +19,28 @@ How it fits together (Gexis Player's ADR-0172):
   loopback go, it is given back. When another source takes the output, the
   copy stops, and Roon is followed again when it plays anew.
 
-In Roon, the player appears under Settings → Audio as a Roon Bridge device
-with one output, the loopback: enable it, and name the zone as you like.
+- **Roon's extension API** (Debian's `python3-roonapi`) gives the player
+  what plays in its zone - title, artist, album, cover, position - and its
+  play, pause, next, previous and seek. The plugin finds its zone itself:
+  the zone that plays while the loopback plays, and not while it does not,
+  is this player's, and it is remembered. When another source takes the
+  output, Roon's zone is paused.
 
-Not yet: what plays and its controls on the player's screen and phone,
-through Roon's extension API.
+In Roon, the player appears under Settings → Audio as a Roon Bridge device
+with two outputs named *Loopback PCM*: enable the top one, and name the zone
+as you like. Then, under
+Settings → Extensions, enable *Gexis Player* with the player's name: once
+Roon has played to the player, its Now Playing is Roon's. Without the
+extension, Roon still plays, and the player says only that Roon does.
 
 ## Tests
 
     python3 -m venv .venv && .venv/bin/pip install --no-cache-dir -e '.[test]'
     .venv/bin/python -m pytest
+
+The tests that need Roon's library are skipped without it; with Debian's
+`python3-roonapi` (or `roonapi` 0.1.6 and its dependencies) importable, they
+run against it.
 
 ## Licence
 

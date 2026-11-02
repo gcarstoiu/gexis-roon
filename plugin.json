@@ -7,5 +7,5 @@
   "label": "Roon Active",
   "accent": "#b0bcc4",
   "status": "Ready",
-  "notice": "Roon Bridge, which makes the player a Roon device, is Roon Labs' software: it is downloaded from Roon Labs when Roon is added, and keeps itself up to date, under Roon's terms (roon.app/en/termsandconditions). It plays from a Roon Core on the same network."
+  "notice": "Roon Bridge, which makes the player a Roon device, is Roon Labs' software: it is downloaded from Roon Labs when Roon is added, and keeps itself up to date, under Roon's terms (roon.app/en/termsandconditions). It plays from a Roon Core on the same network. To see what plays on the player, and control it from there, enable Gexis Player in Roon under Settings → Extensions."
 }

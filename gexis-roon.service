@@ -17,6 +17,9 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+# Roon's token for the extension, and this player's output in it.
+StateDirectory=gexis-roon
+StateDirectoryMode=0700
 
 [Install]
 WantedBy=multi-user.target

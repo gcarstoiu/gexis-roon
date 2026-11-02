@@ -11,9 +11,13 @@ it back:
 - **kept through a pause**, as any renderer that means to play again keeps
   it; **given back** once Roon has let the loopback go for `HOLD_S`;
 - **taken away by the core** (another source starts): the copy stops at
-  once, and Roon is not followed again until it plays anew - the loopback
-  stopped and running again, as when play is pressed in Roon - so the other
-  source is not taken back from while Roon still plays into the loopback.
+  once, Roon's zone is paused through its extension, and Roon is not
+  followed again until it plays anew - the loopback stopped and running
+  again, as when play is pressed in Roon - so the other source is not taken
+  back from while Roon still plays into the loopback.
+
+With Roon's extension enabled (`roon.py`), what plays in this player's zone
+(`zone.py`) is the player's Now Playing, and its controls are Roon's.
 """
 from __future__ import annotations
 
@@ -23,8 +27,9 @@ import logging
 import os
 import time
 
-from gexis_roon import loopback
+from gexis_roon import loopback, roon
 from gexis_roon.contract import RECONNECT_S, Core, Refused
+from gexis_roon.zone import ZoneFinder
 
 logger = logging.getLogger("gexis_roon")
 
@@ -40,10 +45,19 @@ HOLD_S = 10.0
 
 RELEASE_LADDER = {"polite_grace": 1.0, "sigterm_grace": 2.0, "sigkill_grace": 2.0}
 
+CONTROLS = ["play", "pause", "next", "previous", "seek"]
+#: What Roon says its zone can do now, by the player's control.
+ALLOWED = {"play": "is_play_allowed", "pause": "is_pause_allowed", "next": "is_next_allowed",
+           "previous": "is_previous_allowed", "seek": "is_seek_allowed"}
+TRANSPORT = {"playing": "playing", "loading": "playing", "paused": "paused", "stopped": "stopped"}
+#: A position further than this from where the last one said would be by
+#: now is a seek, and is said; the player moves its playhead itself.
+DRIFT_S = 2.0
+
 CAPABILITIES = {
     "audio_connection": "output",
     "acquisition_events": ["Roon starts playing to the player"],
-    "supports_artwork": False,
+    "supports_artwork": True,
     # The rate is Roon's own, whatever it is: nothing here resamples.
     "supports_sample_rate": True,
     # Roon plays at full scale into the loopback; the player's own volume
@@ -53,8 +67,9 @@ CAPABILITIES = {
     "dummy_mixer_card": None,
     "volume_over_bluealsa": False,
     "volume_handed": False,
-    # Transport from the player comes with Roon's extension (ADR-0172 (6)).
-    "controls": [],
+    # Roon's, through its extension (ADR-0172 (6)); unavailable until it is
+    # enabled and this player's zone is known.
+    "controls": CONTROLS,
 }
 
 
@@ -70,13 +85,42 @@ def hello() -> dict:
     }
 
 
+def zone_metadata(zone: dict, image) -> dict:
+    """The player's metadata for what plays in a Roon zone. `image` makes a
+    cover's address from Roon's key and a size."""
+    playing = zone.get("now_playing") or {}
+    lines = playing.get("three_line") or {}
+    metadata = {"transport": TRANSPORT.get(zone.get("state"), "stopped")}
+    for field, line in (("title", "line1"), ("artist", "line2"), ("album", "line3")):
+        if lines.get(line):
+            metadata[field] = lines[line]
+    if playing.get("length"):
+        metadata["duration"] = float(playing["length"])
+    position = zone.get("seek_position", playing.get("seek_position"))
+    if playing and position is not None:
+        metadata["position"] = float(position)
+    if playing.get("image_key"):
+        metadata["artwork"] = image(playing["image_key"], roon.ARTWORK_SIZE)
+        metadata["artwork_small"] = image(playing["image_key"], roon.ARTWORK_ROW)
+    metadata["unavailable"] = [c for c in CONTROLS if not zone.get(ALLOWED[c])
+                               or (c == "seek" and "duration" not in metadata)]
+    return metadata
+
+
 class Plugin:
     """Lives for the process; the connection to the core comes and goes."""
 
-    def __init__(self, copier: loopback.Copier | None = None, clock=time.monotonic) -> None:
+    def __init__(self, copier: loopback.Copier | None = None, clock=time.monotonic,
+                 link: roon.Link | None = None) -> None:
         self.core: Core | None = None
         self.copier = copier or loopback.Copier()
         self._clock = clock
+        #: Roon's extension, when the library is there to speak it.
+        self.roon = link
+        self.finder = ZoneFinder(link.remembered if link else (), clock)
+        self._zones: dict = {}
+        self._sent: dict | None = None
+        self._sent_at = 0.0
         #: The output is ours: the core said so and has not taken it back.
         self.active = False
         #: `acquire` sent, `device_freed` not yet come.
@@ -102,14 +146,87 @@ class Plugin:
             return False
 
     async def _transport_is(self, transport: str) -> None:
-        if transport != self._transport:
-            self._transport = transport
-            await self._say("metadata", metadata={"transport": transport})
+        self._transport = transport
+        await self._publish()
+
+    def zone(self) -> dict | None:
+        """This player's Roon zone, once found."""
+        zone_id = self.finder.zone_id()
+        return self._zones.get(zone_id) if zone_id else None
+
+    async def _publish(self) -> None:
+        """What plays: the zone's, or only the loopback's transport."""
+        zone = self.zone()
+        if zone is not None and self.roon is not None:
+            metadata = zone_metadata(zone, self.roon.image)
+        elif self._transport is not None:
+            metadata = {"transport": self._transport, "unavailable": list(CONTROLS)}
+        else:
+            return
+        if self._news(metadata) and await self._say("metadata", metadata=metadata):
+            self._sent, self._sent_at = metadata, self._clock()
+
+    def _news(self, metadata: dict) -> bool:
+        last = self._sent
+        if last is None:
+            return True
+        if {k: v for k, v in metadata.items() if k != "position"} != \
+                {k: v for k, v in last.items() if k != "position"}:
+            return True
+        if (metadata.get("position") is None) != (last.get("position") is None):
+            return True
+        if metadata.get("position") is None:
+            return False
+        moved = self._clock() - self._sent_at if last["transport"] == "playing" else 0.0
+        return abs(metadata["position"] - (last["position"] + moved)) > DRIFT_S
+
+    # --- from Roon's extension ----------------------------------------------
+
+    def zones_changed(self, zones: dict) -> None:
+        """Roon's zones, whole, on the loop (`roon.Link`)."""
+        self._zones = zones
+        self.finder.zones(zones)
+        asyncio.ensure_future(self._publish())
+
+    def _pause_roon(self) -> None:
+        """ADR-0172 (5): another source took the output; Roon is paused
+        rather than left playing to nobody."""
+        zone = self.zone()
+        if zone is None or self.roon is None or zone.get("state") not in ("playing", "loading"):
+            return
+
+        async def pause() -> None:
+            try:
+                await self.roon.control(zone["zone_id"], "pause")
+            except Exception as exc:  # noqa: BLE001 - the output is given back regardless
+                logger.info("could not pause Roon: %s", exc)
+
+        asyncio.ensure_future(pause())
+
+    async def _transport_command(self, command, argument) -> bool:
+        zone_id = self.finder.zone_id() if self.roon is not None else None
+        if zone_id is None:
+            raise ValueError("Roon's extension is not enabled, or Roon has not played here yet")
+        if command == "seek":
+            done = await self.roon.seek(zone_id, float(argument))
+        elif command in ("play", "pause", "next", "previous"):
+            done = await self.roon.control(zone_id, command)
+        else:
+            raise ValueError(f"{command} is not something Roon does here")
+        if not done:
+            raise ValueError("Roon did not do it")
+        return True
 
     # --- the loopback -------------------------------------------------------
 
     async def tick(self, state: str, stream: loopback.Stream | None) -> None:
         """One reading of the loopback's device 0."""
+        self.finder.loopback(state == "running")
+        if self.finder.check():
+            logger.info("this player's Roon zone: %s", "found" if self.finder.zone_id() else "not known")
+            if self.roon is not None:
+                self.roon.remember(self.finder.outputs)
+            await self._publish()
         playing = state == "running" and stream is not None
         self._playing, self._stream = playing, stream if playing else None
         if not playing:
@@ -161,13 +278,14 @@ class Plugin:
             self.active = False
             self.asked = False
             self.yielded = self._playing
+            self._pause_roon()
             await self.copier.stop()
             await self._transport_is("stopped")
             return True
         if t in ("restart_after_release", "setting", "output"):
             return True
         if t == "transport":
-            raise ValueError("Roon is controlled from Roon")
+            return await self._transport_command(message.get("command"), message.get("argument"))
         raise ValueError(f"{t} is not something this plugin does")
 
     async def connected(self, core: Core) -> None:
@@ -178,6 +296,7 @@ class Plugin:
         self.active = False
         self.asked = False
         self._transport = None
+        self._sent = None
 
 
 async def watch(plugin: Plugin, read=loopback.read) -> None:
@@ -192,6 +311,9 @@ async def watch(plugin: Plugin, read=loopback.read) -> None:
 
 async def run(socket_path: str) -> None:
     plugin = Plugin()
+    link = roon.Link(asyncio.get_running_loop(), plugin.zones_changed)
+    plugin.roon, plugin.finder = link, ZoneFinder(link.remembered)
+    link.start()
     watching = asyncio.ensure_future(watch(plugin))
     try:
         while True:
@@ -215,6 +337,7 @@ async def run(socket_path: str) -> None:
             await asyncio.sleep(RECONNECT_S)
     finally:
         watching.cancel()
+        link.stop()
         await plugin.copier.stop()
 
 

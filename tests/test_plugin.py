@@ -59,7 +59,7 @@ async def test_roon_playing_asks_once_and_copies_when_freed(plugin):
     assert said(plugin) == ["acquire"] and not plugin.copier.running
     await plugin.command("device_freed", {})
     assert plugin.copier.stream == CD
-    assert ("metadata", {"metadata": {"transport": "playing"}}) in plugin.core.said
+    assert ("metadata", {"metadata": {"transport": "playing", "unavailable": main.CONTROLS}}) in plugin.core.said
 
 
 async def test_a_new_rate_restarts_the_copy_at_it(plugin):
@@ -75,7 +75,7 @@ async def test_a_pause_keeps_the_output(plugin):
     await plugin.command("device_freed", {})
     await plugin.tick("paused", CD)
     assert plugin.active and not plugin.copier.running
-    assert plugin.core.said[-1] == ("metadata", {"metadata": {"transport": "paused"}})
+    assert plugin.core.said[-1] == ("metadata", {"metadata": {"transport": "paused", "unavailable": main.CONTROLS}})
 
 
 async def test_a_stop_gives_the_output_back_after_the_hold(plugin):

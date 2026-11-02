@@ -1,6 +1,6 @@
 [project]
 name = "gexis-roon"
-version = "0.2.0"
+version = "0.2.1"
 description = "Roon as a Gexis Player plugin"
 requires-python = ">=3.11"
 # **No runtime dependencies** beyond the player's own (alsa-utils' arecord and
